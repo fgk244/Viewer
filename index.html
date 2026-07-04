@@ -98,6 +98,19 @@
   @media (pointer: coarse) {
     .nav-arrow { opacity: .55; width: 40px; height: 76px; font-size: 20px; }
   }
+  /* 全画面表示モード */
+  body.fs header, body.fs #sidebar, body.fs #resizer, body.fs #viewer-toolbar { display: none !important; }
+  #fs-exit {
+    position: absolute; top: 12px; right: 12px; z-index: 6;
+    width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(30,31,36,.55); color: #fff; font-size: 18px;
+    display: none; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .15s, background .15s; padding: 0;
+  }
+  body.fs #fs-exit { display: flex; }
+  #viewer:hover #fs-exit { opacity: .9; }
+  #fs-exit:hover { background: rgba(220,70,70,.85); }
+  @media (pointer: coarse) { body.fs #fs-exit { opacity: .55; } }
   #viewer-toolbar {
     display: none; padding: 8px 14px; font-size: 13px; color: var(--muted);
     border-bottom: 1px solid var(--border); background: var(--panel);
@@ -183,9 +196,11 @@
       <button class="ghost" id="btn-prev">← 前</button>
       <button class="ghost" id="btn-next">次 →</button>
       <button class="ghost" id="btn-open-tab" title="別タブで開く">↗</button>
+      <button class="ghost" id="btn-fs" title="全画面表示 (F)">⛶</button>
     </div>
     <button class="nav-arrow" id="nav-prev" style="left:10px">❮</button>
     <button class="nav-arrow" id="nav-next" style="right:10px">❯</button>
+    <button id="fs-exit" title="全画面を終了 (Esc)">✕</button>
     <div id="content">
       <div id="placeholder">
         <div class="big">🖼️ 📄 🎬 🎵</div>
@@ -681,6 +696,27 @@ document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT") return;
   if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); open(currentIdx - 1); }
   if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); open(currentIdx + 1); }
+  if (e.key === "f" || e.key === "F") setFullscreen(!document.body.classList.contains("fs"));
+  if (e.key === "Escape") setFullscreen(false);
+});
+
+// ---- 全画面表示 ----
+function setFullscreen(on) {
+  document.body.classList.toggle("fs", on);
+  if (on) {
+    // 対応ブラウザではOSレベルの全画面にも移行(非対応でもCSSでほぼ全画面になる)
+    if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } else if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+$("btn-fs").onclick = () => setFullscreen(true);
+$("fs-exit").onclick = () => setFullscreen(false);
+// ブラウザ側の操作(Esc等)で全画面が解除されたらUIも戻す
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) document.body.classList.remove("fs");
 });
 
 // ---- モバイル対応 ----
