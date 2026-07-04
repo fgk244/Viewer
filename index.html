@@ -123,6 +123,7 @@
   }
   #content.top-align { align-items: flex-start; justify-content: stretch; }
   #content img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #content img, #content video { transition: transform .15s ease; }
   #content img.zoomed { max-width: none; max-height: none; cursor: zoom-out; }
   #content img { cursor: zoom-in; }
   #content iframe { width: 100%; height: 100%; border: none; background: #fff; }
@@ -196,6 +197,7 @@
       <button class="ghost" id="btn-prev">← 前</button>
       <button class="ghost" id="btn-next">次 →</button>
       <button class="ghost" id="btn-open-tab" title="別タブで開く">↗</button>
+      <button class="ghost" id="btn-rotate" title="回転 (R)">⟳</button>
       <button class="ghost" id="btn-fs" title="全画面表示 (F)">⛶</button>
     </div>
     <button class="nav-arrow" id="nav-prev" style="left:10px">❮</button>
@@ -647,6 +649,7 @@ async function open(i) {
   const c = $("content");
   c.innerHTML = "";
   c.classList.remove("top-align");
+  rotation = 0; // ファイルを切り替えたら回転をリセット
   $("viewer-toolbar").style.display = "flex";
   $("vt-name").textContent = (f.dir ? f.dir + "/" : "") + f.name;
   $("vt-info").textContent = fmtSize(file.size) + `  (${currentIdx+1}/${filtered.length})`;
@@ -697,8 +700,31 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); open(currentIdx - 1); }
   if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); open(currentIdx + 1); }
   if (e.key === "f" || e.key === "F") setFullscreen(!document.body.classList.contains("fs"));
+  if (e.key === "r" || e.key === "R") rotate();
   if (e.key === "Escape") setFullscreen(false);
 });
+
+// ---- 回転(画像・動画を90°ずつ) ----
+let rotation = 0;
+function rotate() {
+  rotation = (rotation + 90) % 360;
+  applyRotation();
+}
+function applyRotation() {
+  const el = $("content").querySelector("img, video");
+  if (!el) return;
+  el.style.transform = rotation ? `rotate(${rotation}deg)` : "";
+  // 90°/270°のときは縦横の制約を入れ替えて画面に収める
+  if (rotation % 180 !== 0) {
+    const c = $("content");
+    el.style.maxWidth = c.clientHeight + "px";
+    el.style.maxHeight = c.clientWidth + "px";
+  } else {
+    el.style.maxWidth = ""; el.style.maxHeight = "";
+  }
+}
+$("btn-rotate").onclick = rotate;
+addEventListener("resize", applyRotation);
 
 // ---- 全画面表示 ----
 function setFullscreen(on) {

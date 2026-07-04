@@ -1,4 +1,4 @@
-const CACHE = "viewer-v2";
+const CACHE = "viewer-v3";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {
