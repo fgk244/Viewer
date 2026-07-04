@@ -1,0 +1,11 @@
+{
+  "name": "ファイルビューア",
+  "short_name": "ビューア",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#1e1f24",
+  "theme_color": "#26272e",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

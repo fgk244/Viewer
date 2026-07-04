@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ファイルビューア</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#26272e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ビューア">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root {
+    --bg: #1e1f24;
+    --panel: #26272e;
+    --panel2: #2d2e36;
+    --border: #3a3b44;
+    --text: #e8e8ea;
+    --muted: #9a9ba3;
+    --accent: #6ba4ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif;
+    background: var(--bg); color: var(--text);
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin-right: 6px; }
+  button {
+    background: var(--accent); color: #0f172a; border: none; border-radius: 6px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+  input[type="search"] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 10px; font-size: 13px; width: 200px;
+  }
+  select {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 8px; font-size: 13px;
+  }
+  #status { font-size: 12px; color: var(--muted); margin-left: auto; }
+  main { display: flex; flex: 1; min-height: 0; }
+  #sidebar {
+    width: 300px; min-width: 180px; max-width: 60vw; overflow-y: auto;
+    background: var(--panel); border-right: 1px solid var(--border); padding: 6px;
+  }
+  #resizer { width: 5px; cursor: col-resize; background: transparent; }
+  #resizer:hover { background: var(--accent); }
+  .file-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file-item:hover { background: var(--panel2); }
+  .file-item.active { background: #3b4a66; }
+  .file-item .icon { flex-shrink: 0; }
+  .file-item .name { overflow: hidden; text-overflow: ellipsis; }
+  .file-item .dir { color: var(--muted); font-size: 11px; }
+  .group-head {
+    display: flex; align-items: center; gap: 6px; padding: 7px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+    position: sticky; top: 0; background: var(--panel); z-index: 1;
+    white-space: nowrap; overflow: hidden;
+  }
+  .group-head:hover { background: var(--panel2); }
+  .group-head .tri { color: var(--muted); font-size: 10px; width: 12px; flex-shrink: 0; }
+  .group-head .gname { overflow: hidden; text-overflow: ellipsis; }
+  .group-head .count {
+    margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400;
+    background: var(--panel2); border-radius: 10px; padding: 1px 8px; flex-shrink: 0;
+  }
+  .group-items .file-item { padding-left: 26px; }
+  #viewer {
+    flex: 1; display: flex; flex-direction: column; min-width: 0;
+    align-items: stretch; background: var(--bg); position: relative;
+  }
+  .nav-arrow {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    z-index: 5; width: 44px; height: 90px;
+    border-radius: 10px; border: none; cursor: pointer;
+    background: rgba(30,31,36,.55); color: #fff; font-size: 24px;
+    display: none; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .15s, background .15s;
+    padding: 0;
+  }
+  .nav-arrow.on { display: flex; }
+  #viewer:hover .nav-arrow { opacity: .9; }
+  .nav-arrow:hover { background: rgba(107,164,255,.85); }
+  @media (pointer: coarse) {
+    .nav-arrow { opacity: .55; width: 40px; height: 76px; font-size: 20px; }
+  }
+  #viewer-toolbar {
+    display: none; padding: 8px 14px; font-size: 13px; color: var(--muted);
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    align-items: center; gap: 12px;
+  }
+  #viewer-toolbar .fname { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #content {
+    flex: 1; overflow: auto; display: flex;
+    align-items: center; justify-content: center; position: relative;
+  }
+  #content.top-align { align-items: flex-start; justify-content: stretch; }
+  #content img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #content img.zoomed { max-width: none; max-height: none; cursor: zoom-out; }
+  #content img { cursor: zoom-in; }
+  #content iframe { width: 100%; height: 100%; border: none; background: #fff; }
+  #content video { max-width: 100%; max-height: 100%; }
+  #content audio { width: 80%; }
+  #content pre {
+    width: 100%; height: 100%; padding: 20px; overflow: auto;
+    font-family: Consolas, "Cascadia Code", monospace; font-size: 13px;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+  }
+  #placeholder { color: var(--muted); text-align: center; line-height: 2; padding: 20px; }
+  #placeholder .big { font-size: 40px; }
+  #dropzone-hint { font-size: 12px; }
+  body.dragover::after {
+    content: "ここにドロップ"; position: fixed; inset: 0;
+    background: rgba(107,164,255,.15); border: 3px dashed var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: var(--accent); pointer-events: none; z-index: 99;
+  }
+  #menu-toggle { display: none; }
+  #sidebar-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40;
+  }
+  @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
+    #menu-toggle { display: inline-block; }
+    #sidebar {
+      position: fixed; left: 0; top: 0; bottom: 0; z-index: 50;
+      width: 80vw !important; max-width: 340px;
+      transform: translateX(-105%); transition: transform .2s ease;
+      box-shadow: 4px 0 24px rgba(0,0,0,.5);
+    }
+    #sidebar.show { transform: none; }
+    body.sidebar-open #sidebar-backdrop { display: block; }
+    #resizer { display: none; }
+    header { gap: 6px; padding: 8px 10px; }
+    header h1 { display: none; }
+    input[type="search"] { width: 0; flex: 1; min-width: 80px; }
+    #status { width: 100%; margin-left: 0; }
+    button { padding: 9px 12px; }
+    .file-item, .group-head { padding-top: 10px; padding-bottom: 10px; }
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+</style>
+</head>
+<body>
+<header>
+  <button id="menu-toggle" class="ghost">☰</button>
+  <h1>📁 ファイルビューア</h1>
+  <button id="btn-folder">フォルダを開く</button>
+  <button id="btn-files" class="ghost">ファイルを選ぶ</button>
+  <input type="search" id="search" placeholder="検索…">
+  <select id="filter">
+    <option value="">すべて</option>
+    <option value="image">画像</option>
+    <option value="pdf">PDF</option>
+    <option value="text">テキスト</option>
+    <option value="video">動画</option>
+    <option value="audio">音声</option>
+  </select>
+  <span id="status">フォルダを開くか、ここにドラッグ&ドロップ</span>
+</header>
+<div id="sidebar-backdrop"></div>
+<main>
+  <div id="sidebar"></div>
+  <div id="resizer"></div>
+  <div id="viewer">
+    <div id="viewer-toolbar">
+      <span class="fname" id="vt-name"></span>
+      <span id="vt-info"></span>
+      <button class="ghost" id="btn-prev">← 前</button>
+      <button class="ghost" id="btn-next">次 →</button>
+      <button class="ghost" id="btn-open-tab" title="別タブで開く">↗</button>
+    </div>
+    <button class="nav-arrow" id="nav-prev" style="left:10px">❮</button>
+    <button class="nav-arrow" id="nav-next" style="right:10px">❯</button>
+    <div id="content">
+      <div id="placeholder">
+        <div class="big">🖼️ 📄 🎬 🎵</div>
+        「フォルダを開く」でフォルダごと読み込み<br>
+        またはファイルをウィンドウにドラッグ&ドロップ<br>
+        <span id="dropzone-hint">画像 / PDF / テキスト / 動画 / 音声 / ZIP / RAR / 7z に対応。←→キーでファイル移動</span>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const TYPES = {
+  image: ["png","jpg","jpeg","gif","webp","svg","bmp","ico","avif"],
+  pdf:   ["pdf"],
+  text:  ["txt","md","csv","json","js","ts","py","html","css","xml","yaml","yml","log","ini","bat","sh","c","cpp","h","java","rb","go","rs","sql","toml"],
+  video: ["mp4","webm","mov","mkv","avi"],
+  audio: ["mp3","wav","ogg","m4a","flac","aac"],
+};
+const ICONS = { image:"🖼️", pdf:"📄", text:"📝", video:"🎬", audio:"🎵" };
+const MIMES = {
+  pdf:"application/pdf", png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg",
+  gif:"image/gif", webp:"image/webp", svg:"image/svg+xml", bmp:"image/bmp",
+  mp4:"video/mp4", webm:"video/webm", mov:"video/quicktime",
+  mp3:"audio/mpeg", wav:"audio/wav", ogg:"audio/ogg", m4a:"audio/mp4", flac:"audio/flac",
+};
+const isZip = name => /\.zip$/i.test(name);
+const isSeven = name => /\.(rar|7z|tar)$/i.test(name);
+
+let files = [];        // {name, dir, handle|file, type, ext, size}
+let filtered = [];
+let currentIdx = -1;
+let currentFile = null;
+let currentUrl = null;
+let collapsed = new Set();
+let collapsedInit = false;
+const ROOT_LABEL = "(トップ)";
+
+const $ = id => document.getElementById(id);
+
+function typeOf(name) {
+  const ext = name.split(".").pop().toLowerCase();
+  for (const [t, exts] of Object.entries(TYPES)) if (exts.includes(ext)) return t;
+  return null;
+}
+
+function fmtSize(n) {
+  if (n == null) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n/1024).toFixed(1) + " KB";
+  return (n/1048576).toFixed(1) + " MB";
+}
+
+// ---- ZIP解析(ライブラリ不使用・全部ローカル) ----
+async function parseZip(blob) {
+  // 末尾からEOCD(セントラルディレクトリ終端)を探す
+  const size = blob.size;
+  const tailLen = Math.min(size, 65558);
+  const tail = new Uint8Array(await blob.slice(size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tail.length - 22; i >= 0; i--) {
+    if (tail[i] === 0x50 && tail[i+1] === 0x4b && tail[i+2] === 0x05 && tail[i+3] === 0x06) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("ZIP形式を認識できません");
+  const ev = new DataView(tail.buffer, tail.byteOffset + eocd);
+  const count = ev.getUint16(10, true);
+  const cdSize = ev.getUint32(12, true);
+  const cdOfs = ev.getUint32(16, true);
+  // セントラルディレクトリだけ読む(ファイル全体は読み込まない)
+  const cd = new Uint8Array(await blob.slice(cdOfs, cdOfs + cdSize).arrayBuffer());
+  const dv = new DataView(cd.buffer);
+  const utf8 = new TextDecoder("utf-8");
+  let sjis; try { sjis = new TextDecoder("shift_jis"); } catch { sjis = utf8; }
+  const out = [];
+  let p = 0;
+  for (let n = 0; n < count && p + 46 <= cd.length; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const flags   = dv.getUint16(p+8, true);
+    const method  = dv.getUint16(p+10, true);
+    const csize   = dv.getUint32(p+20, true);
+    const usize   = dv.getUint32(p+24, true);
+    const nameLen = dv.getUint16(p+28, true);
+    const extraLen= dv.getUint16(p+30, true);
+    const cmtLen  = dv.getUint16(p+32, true);
+    const lho     = dv.getUint32(p+42, true);
+    const nameBytes = cd.subarray(p+46, p+46+nameLen);
+    // UTF-8フラグがなければShift_JISとして読む(Windowsの日本語ZIP対策)
+    const rawName = (flags & 0x800) ? utf8.decode(nameBytes) : sjis.decode(nameBytes);
+    p += 46 + nameLen + extraLen + cmtLen;
+    if (rawName.endsWith("/")) continue;          // フォルダ項目
+    if (flags & 0x1) continue;                    // パスワード付きは非対応
+    if (method !== 0 && method !== 8) continue;   // 無圧縮/Deflate以外は非対応
+    out.push({ rawName, method, csize, usize, lho });
+  }
+  return out;
+}
+
+async function extractZipEntry(zipBlob, ent) {
+  // ローカルヘッダを読んでデータ開始位置を特定
+  const lh = new DataView(await zipBlob.slice(ent.lho, ent.lho + 30).arrayBuffer());
+  const nameLen = lh.getUint16(26, true), extraLen = lh.getUint16(28, true);
+  const start = ent.lho + 30 + nameLen + extraLen;
+  const comp = zipBlob.slice(start, start + ent.csize);
+  if (ent.method === 0) return comp;
+  const ds = new DecompressionStream("deflate-raw");
+  return await new Response(comp.stream().pipeThrough(ds)).blob();
+}
+
+async function addZip(zipFile, parentPath) {
+  try {
+    const entries = await parseZip(zipFile);
+    const base = (parentPath ? parentPath + "/" : "") + "📦 " + zipFile.name;
+    let added = 0;
+    for (const ent of entries) {
+      const t = typeOf(ent.rawName);
+      if (!t) continue;
+      const slash = ent.rawName.lastIndexOf("/");
+      const name = slash >= 0 ? ent.rawName.slice(slash+1) : ent.rawName;
+      const sub = slash >= 0 ? "/" + ent.rawName.slice(0, slash) : "";
+      files.push({ name, dir: base + sub, type: t, zipBlob: zipFile, zipEnt: ent, size: ent.usize });
+      added++;
+    }
+    if (!added) console.warn("表示できるファイルなし:", zipFile.name);
+  } catch(e) { console.warn("ZIP読込失敗:", zipFile.name, e.message); }
+}
+
+// ---- RAR/7z/tar (7-Zip WASMエンジン) ----
+// 初回のみCDNからエンジンを取得しIndexedDBに保存 → 以後は完全オフライン動作。
+// ユーザーのファイルが外部に送信されることはない。
+const SEVEN_CDN = "https://cdn.jsdelivr.net/npm/7z-wasm@1/";
+let sevenFactory = null, sevenWasm = null, sevenLoading = null;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("viewer-engine", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise(res => {
+      const t = db.transaction("kv").objectStore("kv").get(key);
+      t.onsuccess = () => res(t.result); t.onerror = () => res(undefined);
+    });
+  } catch { return undefined; }
+}
+async function idbSet(key, val) {
+  try {
+    const db = await idbOpen();
+    db.transaction("kv", "readwrite").objectStore("kv").put(val, key);
+  } catch {}
+}
+
+async function loadSeven() {
+  if (sevenFactory) return;
+  if (sevenLoading) return sevenLoading;
+  sevenLoading = (async () => {
+    let js = await idbGet("7zz.js"), wasm = await idbGet("7zz.wasm");
+    if (!js || !wasm) {
+      $("status").textContent = "解凍エンジンを取得中…(初回のみ・ファイルは送信されません)";
+      let jr, wr;
+      try {
+        [jr, wr] = await Promise.all([fetch(SEVEN_CDN + "7zz.umd.js"), fetch(SEVEN_CDN + "7zz.wasm")]);
+      } catch {
+        throw new Error("RAR/7zの初回利用にはネット接続が必要です(2回目以降はオフラインOK)");
+      }
+      if (!jr.ok || !wr.ok) throw new Error("解凍エンジンの取得に失敗しました");
+      js = await jr.text(); wasm = await wr.arrayBuffer();
+      idbSet("7zz.js", js); idbSet("7zz.wasm", wasm);
+    }
+    const mod = { exports: {} };
+    const fn = new Function("module", "exports", js + "\n;return module.exports;");
+    let exp = fn(mod, mod.exports);
+    sevenFactory = (exp && (exp.default || exp)) || window.SevenZip;
+    if (typeof sevenFactory !== "function") throw new Error("解凍エンジンの初期化に失敗しました");
+    sevenWasm = wasm;
+  })();
+  try { await sevenLoading; } finally { sevenLoading = null; }
+}
+
+async function sevenInstance(prints) {
+  return await sevenFactory({
+    wasmBinary: sevenWasm.slice(0),
+    print: l => prints && prints.push(l),
+    printErr: l => prints && prints.push(l),
+    stdin: () => null,
+  });
+}
+
+function arcExtName(name) {
+  const m = name.match(/\.[a-z0-9]+$/i);
+  return m ? m[0].toLowerCase() : ".bin";
+}
+
+async function addSevenArchive(file, parentPath) {
+  try {
+    await loadSeven();
+    const data = new Uint8Array(await file.arrayBuffer());
+    const lines = [];
+    const sz = await sevenInstance(lines);
+    const arcName = "/in" + arcExtName(file.name);
+    sz.FS.writeFile(arcName, data);
+    try { sz.callMain(["l", "-ba", "-slt", "-p", arcName]); } catch {}
+    // -slt形式の出力をパース
+    const entries = [];
+    let cur = null;
+    for (const ln of lines) {
+      if (ln.startsWith("Path = ")) { if (cur) entries.push(cur); cur = { path: ln.slice(7) }; }
+      else if (cur && ln.startsWith("Size = ")) cur.size = +ln.slice(7) || 0;
+      else if (cur && ln.startsWith("Folder = ")) cur.folder = ln.slice(9).trim() === "+";
+      else if (cur && ln.startsWith("Attributes = ")) cur.dirAttr = ln.slice(13).includes("D");
+    }
+    if (cur) entries.push(cur);
+    const arc = { file, cache: null };
+    const base = (parentPath ? parentPath + "/" : "") + "📦 " + file.name;
+    let added = 0;
+    for (const e of entries) {
+      if (e.folder || e.dirAttr) continue;
+      const norm = e.path.replace(/\\/g, "/");
+      const t = typeOf(norm);
+      if (!t) continue;
+      const slash = norm.lastIndexOf("/");
+      files.push({
+        name: slash >= 0 ? norm.slice(slash + 1) : norm,
+        dir: base + (slash >= 0 ? "/" + norm.slice(0, slash) : ""),
+        type: t, arc, arcPath: norm, size: e.size,
+      });
+      added++;
+    }
+    if (!added) console.warn("表示できるファイルなし(またはパスワード付き):", file.name);
+  } catch (e) {
+    console.warn("アーカイブ読込失敗:", file.name, e);
+    $("status").textContent = "⚠ " + file.name + ": " + e.message;
+  }
+}
+
+async function arcExtract(arc, path) {
+  if (!arc.cache) {
+    // 初回アクセス時にアーカイブ全体をメモリ上に展開してキャッシュ
+    const data = new Uint8Array(await arc.file.arrayBuffer());
+    const sz = await sevenInstance([]);
+    const arcName = "/in" + arcExtName(arc.file.name);
+    sz.FS.writeFile(arcName, data);
+    try { sz.FS.mkdir("/out"); } catch {}
+    try { sz.callMain(["x", arcName, "-o/out", "-y", "-p"]); } catch {}
+    arc.cache = new Map();
+    (function walk(dir, rel) {
+      for (const n of sz.FS.readdir(dir)) {
+        if (n === "." || n === "..") continue;
+        const p = dir + "/" + n, st = sz.FS.stat(p);
+        const r = rel ? rel + "/" + n : n;
+        if (sz.FS.isDir(st.mode)) walk(p, r);
+        else arc.cache.set(r, sz.FS.readFile(p));
+      }
+    })("/out", "");
+  }
+  const u8 = arc.cache.get(path);
+  if (!u8) throw new Error("展開に失敗: " + path);
+  return u8;
+}
+
+// ---- フォルダ読み込み ----
+$("btn-folder").onclick = async () => {
+  try {
+    const dir = await showDirectoryPicker();
+    files = [];
+    collapsed.clear(); collapsedInit = false; currentFile = null;
+    $("status").textContent = "読み込み中…";
+    await scanDir(dir, "");
+    finishLoad(dir.name);
+  } catch(e) { if (e.name !== "AbortError") console.error(e); }
+};
+
+async function scanDir(dir, path) {
+  for await (const entry of dir.values()) {
+    if (entry.kind === "file") {
+      const t = typeOf(entry.name);
+      if (t) files.push({ name: entry.name, dir: path, handle: entry, type: t });
+      else if (isZip(entry.name)) await addZip(await entry.getFile(), path);
+      else if (isSeven(entry.name)) await addSevenArchive(await entry.getFile(), path);
+    } else if (entry.kind === "directory" && !entry.name.startsWith(".")) {
+      await scanDir(entry, path ? path + "/" + entry.name : entry.name);
+    }
+  }
+}
+
+// ---- ファイル選択 ----
+const fileInput = document.createElement("input");
+fileInput.type = "file"; fileInput.multiple = true;
+fileInput.onchange = () => addFiles([...fileInput.files]);
+$("btn-files").onclick = () => fileInput.click();
+
+// ---- ドラッグ&ドロップ ----
+document.addEventListener("dragover", e => { e.preventDefault(); document.body.classList.add("dragover"); });
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dragover"); });
+document.addEventListener("drop", async e => {
+  e.preventDefault(); document.body.classList.remove("dragover");
+  // 重要: awaitを挟む前に全アイテムを同期で取得する
+  // (非同期処理を待つとdataTransferが無効化され、後続のファイルが取れなくなる)
+  const snap = [...e.dataTransfer.items].map(item => ({
+    entry: item.webkitGetAsEntry ? item.webkitGetAsEntry() : null,
+    file: item.getAsFile(),
+  }));
+  const dropped = [];
+  for (const s of snap) {
+    if (s.entry && s.entry.isDirectory) await scanEntry(s.entry, "", dropped);
+    else if (s.file) dropped.push(s.file);
+  }
+  addFiles(dropped);
+});
+
+function scanEntry(entry, path, out) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => { if (typeOf(f.name) || isZip(f.name) || isSeven(f.name)) { f._dir = path; out.push(f); } resolve(); });
+    } else {
+      const reader = entry.createReader();
+      const readAll = (acc) => reader.readEntries(async ents => {
+        if (!ents.length) {
+          for (const e of acc) await scanEntry(e, path ? path + "/" + entry.name : entry.name, out);
+          resolve();
+        } else readAll(acc.concat(ents));
+      });
+      readAll([]);
+    }
+  });
+}
+
+async function addFiles(list) {
+  let skipped = 0;
+  for (const f of list) {
+    const t = typeOf(f.name);
+    if (t) files.push({ name: f.name, dir: f._dir || "", file: f, type: t, size: f.size });
+    else if (isZip(f.name)) await addZip(f, f._dir || "");
+    else if (isSeven(f.name)) await addSevenArchive(f, f._dir || "");
+    else skipped++;
+  }
+  finishLoad();
+  if (skipped) $("status").textContent += ` / 対応外の形式 ${skipped} 件をスキップ`;
+  else if (!list.length) $("status").textContent = "ファイルを取得できませんでした";
+}
+
+function finishLoad(folderName) {
+  files.sort((a,b) => (a.dir + a.name).localeCompare(b.dir + b.name, "ja"));
+  render();
+  $("status").textContent = (folderName ? folderName + ": " : "") + files.length + " ファイル";
+  if (filtered.length && currentIdx < 0) open(0);
+}
+
+// ---- 一覧表示 ----
+$("search").oninput = render;
+$("filter").onchange = render;
+
+function render() {
+  const q = $("search").value.toLowerCase();
+  const ft = $("filter").value;
+  filtered = files.filter(f =>
+    (!ft || f.type === ft) &&
+    (!q || (f.dir + "/" + f.name).toLowerCase().includes(q))
+  );
+
+  // フォルダごとにグループ化
+  const groups = new Map();
+  filtered.forEach((f, i) => {
+    const key = f.dir || ROOT_LABEL;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  });
+
+  // 初回: フォルダが複数あれば全部畳んだ状態から
+  if (!collapsedInit) {
+    if (groups.size > 1) for (const k of groups.keys()) collapsed.add(k);
+    collapsedInit = true;
+  }
+
+  const sb = $("sidebar");
+  sb.innerHTML = "";
+  for (const [key, idxs] of groups) {
+    const isOpen = q ? true : !collapsed.has(key); // 検索中は全展開
+    const head = document.createElement("div");
+    head.className = "group-head";
+    head.innerHTML = `<span class="tri">${isOpen ? "▼" : "▶"}</span>📂 <span class="gname">${key}</span><span class="count">${idxs.length}</span>`;
+    head.onclick = () => {
+      collapsed.has(key) ? collapsed.delete(key) : collapsed.add(key);
+      render();
+    };
+    sb.appendChild(head);
+    if (isOpen) {
+      const wrap = document.createElement("div");
+      wrap.className = "group-items";
+      for (const i of idxs) {
+        const f = filtered[i];
+        const div = document.createElement("div");
+        div.className = "file-item";
+        div.innerHTML = `<span class="icon">${ICONS[f.type]}</span><span class="name">${f.name}</span>`;
+        div.onclick = () => open(i);
+        div.dataset.idx = i;
+        wrap.appendChild(div);
+      }
+      sb.appendChild(wrap);
+    }
+  }
+
+  // 表示中ファイルの選択状態を復元
+  currentIdx = currentFile ? filtered.indexOf(currentFile) : -1;
+  if (currentIdx >= 0) {
+    const el = document.querySelector(`.file-item[data-idx="${currentIdx}"]`);
+    if (el) el.classList.add("active");
+  }
+  updateArrows();
+}
+
+// ---- 表示 ----
+async function open(i) {
+  if (i < 0 || i >= filtered.length) return;
+  const f = filtered[i];
+  currentFile = f;
+  // 畳まれたフォルダ内のファイルへ移動したら自動で展開
+  const key = f.dir || ROOT_LABEL;
+  if (collapsed.has(key)) { collapsed.delete(key); render(); }
+  currentIdx = filtered.indexOf(f);
+  document.querySelectorAll(".file-item").forEach(el =>
+    el.classList.toggle("active", +el.dataset.idx === currentIdx));
+  const item = document.querySelector(`.file-item[data-idx="${currentIdx}"]`);
+  if (item) item.scrollIntoView({ block: "nearest" });
+  if (document.body.classList.contains("sidebar-open")) toggleSidebar(false);
+
+  let file;
+  const mime = MIMES[f.name.split(".").pop().toLowerCase()] || "";
+  if (f.zipBlob) {
+    const raw = await extractZipEntry(f.zipBlob, f.zipEnt);
+    file = new Blob([raw], { type: mime });
+  } else if (f.arc) {
+    $("vt-info").textContent = "展開中…";
+    const u8 = await arcExtract(f.arc, f.arcPath);
+    file = new Blob([u8], { type: mime });
+  } else {
+    file = f.file || await f.handle.getFile();
+  }
+  if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+
+  const c = $("content");
+  c.innerHTML = "";
+  c.classList.remove("top-align");
+  $("viewer-toolbar").style.display = "flex";
+  $("vt-name").textContent = (f.dir ? f.dir + "/" : "") + f.name;
+  $("vt-info").textContent = fmtSize(file.size) + `  (${currentIdx+1}/${filtered.length})`;
+  updateArrows();
+
+  if (f.type === "text") {
+    const text = await file.text();
+    const pre = document.createElement("pre");
+    pre.textContent = text.length > 2_000_000 ? text.slice(0, 2_000_000) + "\n…(省略)" : text;
+    c.classList.add("top-align");
+    c.appendChild(pre);
+    return;
+  }
+
+  currentUrl = URL.createObjectURL(file);
+  if (f.type === "image") {
+    const img = document.createElement("img");
+    img.src = currentUrl;
+    img.onclick = () => img.classList.toggle("zoomed");
+    c.appendChild(img);
+  } else if (f.type === "pdf") {
+    const ifr = document.createElement("iframe");
+    ifr.src = currentUrl;
+    c.appendChild(ifr);
+  } else if (f.type === "video") {
+    const v = document.createElement("video");
+    v.src = currentUrl; v.controls = true; v.autoplay = false;
+    c.appendChild(v);
+  } else if (f.type === "audio") {
+    const a = document.createElement("audio");
+    a.src = currentUrl; a.controls = true;
+    c.appendChild(a);
+  }
+}
+
+$("btn-prev").onclick = () => open(currentIdx - 1);
+$("btn-next").onclick = () => open(currentIdx + 1);
+$("nav-prev").onclick = () => open(currentIdx - 1);
+$("nav-next").onclick = () => open(currentIdx + 1);
+
+function updateArrows() {
+  const show = filtered.length > 0 && currentIdx >= 0;
+  $("nav-prev").classList.toggle("on", show && currentIdx > 0);
+  $("nav-next").classList.toggle("on", show && currentIdx < filtered.length - 1);
+}
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); open(currentIdx - 1); }
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); open(currentIdx + 1); }
+});
+
+// ---- モバイル対応 ----
+// フォルダ選択非対応ブラウザ(スマホ等)ではファイル選択をメインに
+if (!window.showDirectoryPicker) {
+  $("btn-folder").style.display = "none";
+  $("btn-files").classList.remove("ghost");
+}
+
+function toggleSidebar(show) {
+  const s = $("sidebar");
+  const on = show ?? !s.classList.contains("show");
+  s.classList.toggle("show", on);
+  document.body.classList.toggle("sidebar-open", on);
+}
+$("menu-toggle").onclick = () => toggleSidebar();
+$("sidebar-backdrop").onclick = () => toggleSidebar(false);
+
+// スワイプで前後のファイルへ
+let swX = null, swY = null;
+$("content").addEventListener("touchstart", e => {
+  if (e.touches.length !== 1) { swX = null; return; }
+  swX = e.touches[0].clientX; swY = e.touches[0].clientY;
+}, { passive: true });
+$("content").addEventListener("touchend", e => {
+  if (swX == null) return;
+  const dx = e.changedTouches[0].clientX - swX;
+  const dy = e.changedTouches[0].clientY - swY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2) open(currentIdx + (dx < 0 ? 1 : -1));
+  swX = null;
+}, { passive: true });
+
+// 別タブで開く(スマホのPDF表示用フォールバックにも)
+$("btn-open-tab").onclick = () => { if (currentUrl) window.open(currentUrl, "_blank"); };
+
+// ---- サイドバー幅調整 ----
+const resizer = $("resizer");
+resizer.onmousedown = e => {
+  e.preventDefault();
+  const move = ev => { $("sidebar").style.width = Math.max(180, ev.clientX) + "px"; };
+  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+};
+
+// ---- PWA: オフライン対応 ----
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
