@@ -1,0 +1,48 @@
+■ CSVプレイヤー 設置手順(GitHub Pages・無料・約10分)
+
+※ 機器へのBluetooth接続は https:// で開いたときだけ有効です。
+   PCでローカルの index.html をダブルクリックして開いた場合(file://)は
+   再生と動作モニターのみ使えます。接続したいときはホスティング版を使ってください。
+
+1. https://github.com で無料アカウントを作成(既にあればそのまま)
+
+2. ログイン後、右上の「+」→「New repository」
+   - Repository name: csvplayer (好きな名前でOK)
+   - 「Public」を選択
+   - 「Create repository」を押す
+
+3. 作成後の画面にある「uploading an existing file」リンクをクリック
+   - このフォルダの4ファイルをまとめてドラッグ&ドロップ:
+     index.html / manifest.webmanifest / sw.js / icon.svg
+   - 下の「Commit changes」を押す
+
+4. リポジトリの「Settings」タブ → 左メニュー「Pages」
+   - Branch を「main」にして「Save」
+
+5. 1〜2分待つと、ページ上部にURLが表示される:
+   https://ユーザー名.github.io/csvplayer/
+
+   ※ 既存の Viewer リポジトリ(https://fgk244.github.io/Viewer/)に
+      「csvplayer」フォルダを作って4ファイルを入れると
+      https://fgk244.github.io/Viewer/csvplayer/ でも公開できます。
+
+■ 使い方(PC / Android)
+
+1. ChromeまたはEdgeでURLを開く
+2. 機器の電源を入れ、「接続」→ 一覧から「UFO-」「UFO-TW」などを選ぶ
+   (「UFO」だけの名前は片方しか繋がっていない状態。本体で子機と接続し直す)
+3. 「ファイル追加」で動画・音声とCSVをまとめて選ぶ(同名なら自動で紐づく)
+4. 行をクリック、または「再生」
+
+■ 使い方(iPhone / iPad)
+
+SafariはBluetoothに対応していないため、App Storeの無料アプリ「Bluefy」で
+上記URLを開いてください。あとはPCと同じです。
+再生だけならSafariでも使えます(「ホーム画面に追加」でアプリ化も可)。
+
+動画・音声・CSVがネットに送信されることはありません。
+サーバーに置くのはプレイヤーのプログラムだけです。
+
+■ 更新したいとき
+リポジトリで古いファイルを開いて削除 → 新しいファイルをアップロード
+(またはそのままアップロードで上書き)。反映されないときは Ctrl+F5 でスーパーリロード。
