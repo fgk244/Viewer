@@ -84,6 +84,24 @@
   }
   #stageImg.show { display: block; }
   #stageImg.cover { object-fit: cover; }
+
+  /* 全画面(Fullscreen API または CSS擬似全画面) */
+  #stage.fs {
+    position: fixed; inset: 0; z-index: 100; aspect-ratio: auto; max-height: none;
+    width: 100vw; height: 100vh; height: 100dvh; background: #000;
+  }
+  #stage:fullscreen, #stage:-webkit-full-screen { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; }
+  #fsBar {
+    position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
+    display: none; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 12px;
+    background: rgba(30,31,36,.85); border: 1px solid var(--border); z-index: 5;
+    opacity: 0; transition: opacity .25s; max-width: calc(100vw - 20px); flex-wrap: wrap; justify-content: center;
+  }
+  #stage.fs #fsBar { display: flex; }
+  #stage.fs.show-ui #fsBar { opacity: 1; }
+  #fsBar button { padding: 8px 12px; font-size: 15px; }
+  #fsInfo { font-family: Consolas, Menlo, monospace; font-size: 13px; color: var(--text); padding: 0 6px; white-space: nowrap; }
+  @media (max-width: 480px) { #fsBar { bottom: 64px; gap: 4px; } #fsBar button { padding: 8px 8px; font-size: 14px; } #fsInfo { flex-basis: 100%; text-align: center; } }
   #stageMsg {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 20px; pointer-events: none;
@@ -205,6 +223,15 @@
       <video id="video" playsinline preload="metadata"></video>
       <div id="audioArt"><div class="note">🎧</div><div id="audioName"></div></div>
       <div id="stageMsg">再生リストからトラックを選ぶか、「再生」を押してください</div>
+      <div id="fsBar">
+        <button class="ghost" data-fs="prev" title="前のトラック">⏮</button>
+        <button class="ghost" data-fs="back" title="10秒戻る">↺10</button>
+        <button data-fs="play" id="fsPlay" title="再生/一時停止">▶</button>
+        <button class="ghost" data-fs="fwd" title="10秒進む">10↻</button>
+        <button class="ghost" data-fs="next" title="次のトラック">⏭</button>
+        <span id="fsInfo"></span>
+        <button class="ghost" data-fs="exit" title="全画面を終了 (Esc)">✕</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -217,6 +244,7 @@
         <button id="fwd10" class="ghost" title="10秒進む">10秒 ↻</button>
         <button id="nextBtn" class="ghost">次 ⏭</button>
         <button id="stopBtn" class="ghost">■ 停止</button>
+        <button id="fsBtn" class="ghost" title="全画面表示 (F)">⛶ 全画面</button>
         <label class="opt"><input type="checkbox" id="optLoop"> リスト繰り返し</label>
       </div>
     </div>
@@ -263,7 +291,7 @@
     </div>
 
     <div id="footer">
-      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り(<kbd>Shift</kbd>で10秒) ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック<br>
+      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り(<kbd>Shift</kbd>で10秒) ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック ・ <kbd>F</kbd> 全画面(<kbd>Esc</kbd>で解除)<br>
       ファイルは端末内でのみ処理され、外部には送信されません。CSV形式: <code>時間(0.1秒単位),方向(0/1),強さ(0〜100)</code>
     </div>
   </div>
@@ -435,6 +463,7 @@ function showCmd(d, p) {
   }
   $("powFill").style.width = p + "%";
   $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (on ? (d ? "逆転" : "正転") + " " + p : "停止");
+  updateFsInfo();
 }
 function fmtTime(s) {
   if (!isFinite(s)) s = 0;
@@ -696,6 +725,7 @@ function updateNow() {
   $("nowTitle").textContent = t ? t.name : "—";
   $("nowMeta").textContent = t ? (t.cmds ? "CSV: " + t.csvName + " / " + t.cmds.length + "行 / 初動 " + firstMove(t.cmds) : "CSV: なし(再生のみ)") : "CSV: なし";
   $("playBtn").textContent = v.paused ? "▶ 再生" : "❚❚ 一時停止";
+  updateFsInfo();
 }
 $("playBtn").onclick = () => {
   if (cur < 0) { if (tracks.length) playTrack(0); else $("fileInput").click(); return; }
@@ -743,7 +773,7 @@ function tick() {
   let c = null;
   while (nextIdx < t.cmds.length && t.cmds[nextIdx].t <= now) { c = t.cmds[nextIdx]; nextIdx++; }
   if (c) { lastCmd = c; sendCmd(c.d, c.p); }
-  else $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (lastCmd && lastCmd.p > 0 ? (((settings.rev ? 1 - lastCmd.d : lastCmd.d)) ? "逆転" : "正転") + " " + Math.max(0, Math.min(100, lastCmd.p + settings.adj)) : "停止");
+  else { $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (lastCmd && lastCmd.p > 0 ? (((settings.rev ? 1 - lastCmd.d : lastCmd.d)) ? "逆転" : "正転") + " " + Math.max(0, Math.min(100, lastCmd.p + settings.adj)) : "停止"); updateFsInfo(); }
   lastT = now;
 }
 function startTick() { if (!tickTimer) tickTimer = setInterval(tick, 50); }
@@ -754,6 +784,62 @@ v.addEventListener("pause", () => { stopTick(); sendStop(); updateNow(); if (v.e
 v.addEventListener("seeked", () => { if (!v.paused) relocate(); });
 v.addEventListener("ended", () => { stopTick(); sendStop(); nextTrack(true); });
 v.addEventListener("error", () => { setStatus("このファイルはブラウザで再生できません(コーデック非対応の可能性)"); });
+
+/* 全画面表示: Fullscreen API(PC/Android/iPad) → 非対応なら CSS 擬似全画面(iPhone) */
+const stage = $("stage");
+let fsUiTimer = 0;
+function isFs() { return stage.classList.contains("fs"); }
+async function enterFs() {
+  if (cur < 0 && tracks.length) playTrack(0);
+  const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+  let ok = false;
+  if (req) { try { await req.call(stage); ok = true; } catch {} }
+  if (!ok) stage.classList.add("fs"); // 擬似全画面(fullscreenchange が来ないので自前で付与)
+  $("fsBtn").textContent = "⛶ 全画面解除";
+  showFsUi();
+}
+function exitFs() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) { try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} }
+  stage.classList.remove("fs", "show-ui");
+  $("fsBtn").textContent = "⛶ 全画面";
+}
+function toggleFs() { isFs() ? exitFs() : enterFs(); }
+function onFsChange() {
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  stage.classList.toggle("fs", on);
+  if (!on) stage.classList.remove("show-ui");
+  $("fsBtn").textContent = on ? "⛶ 全画面解除" : "⛶ 全画面";
+}
+document.addEventListener("fullscreenchange", onFsChange);
+document.addEventListener("webkitfullscreenchange", onFsChange);
+function showFsUi() {
+  if (!isFs()) return;
+  stage.classList.add("show-ui");
+  clearTimeout(fsUiTimer);
+  fsUiTimer = setTimeout(() => stage.classList.remove("show-ui"), 3000);
+}
+stage.addEventListener("mousemove", showFsUi);
+stage.addEventListener("touchstart", showFsUi, { passive: true });
+stage.addEventListener("click", e => { if (isFs() && !e.target.closest("#fsBar")) showFsUi(); });
+$("fsBtn").onclick = toggleFs;
+$("fsBar").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  e.stopPropagation(); showFsUi();
+  switch (b.dataset.fs) {
+    case "prev": $("prevBtn").click(); break;
+    case "back": seekBy(-10); break;
+    case "play": $("playBtn").click(); break;
+    case "fwd": seekBy(10); break;
+    case "next": nextTrack(false); break;
+    case "exit": exitFs(); break;
+  }
+});
+function updateFsInfo() {
+  if (!isFs()) return;
+  $("fsPlay").textContent = v.paused ? "▶" : "❚❚";
+  $("fsInfo").textContent = (tracks[cur] ? "[" + (cur + 1) + "/" + tracks.length + "] " : "") + $("cmdText").textContent;
+}
 
 /* 画面消灯防止 */
 async function requestWake() {
@@ -777,6 +863,8 @@ document.addEventListener("keydown", e => {
   else if (e.key === "ArrowLeft") { e.preventDefault(); seekBy(e.shiftKey ? -10 : -5); }
   else if (e.key === "n" || e.key === "N") nextTrack(false);
   else if (e.key === "p" || e.key === "P") $("prevBtn").click();
+  else if (e.key === "f" || e.key === "F") toggleFs();
+  else if (e.key === "Escape" && isFs()) exitFs();
 });
 window.addEventListener("pagehide", () => { sendStop(); });
 
