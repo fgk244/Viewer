@@ -100,8 +100,10 @@
   #stage.fs #fsBar { display: flex; pointer-events: none; }
   #stage.fs.show-ui #fsBar { pointer-events: auto; }
   /* 全画面中のタップ検知レイヤー(下端70pxはブラウザ標準の再生バー用に空ける) */
-  #fsTap { position: absolute; inset: 0 0 70px 0; z-index: 2; display: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  #fsTap { position: absolute; inset: 0; z-index: 2; display: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   #stage.fs #fsTap { display: block; }
+  #stage.fs.show-ui #fsTap { inset: 0 0 70px 0; } /* UI表示中は下端をブラウザ標準の再生バーに譲る */
+  button.devpaused { background: var(--warn); color: #0f172a; border-color: var(--warn); }
   /* 全画面中の動作モニター(右上・操作バーと一緒にタップで表示/非表示) */
   #fsMon {
     position: absolute; top: 12px; right: 12px; z-index: 5; display: none; align-items: center; gap: 10px;
@@ -258,6 +260,7 @@
         <button class="ghost" data-fs="stop" title="停止(先頭に戻る)">■</button>
         <button class="ghost" data-fs="fwd" title="10秒進む">10↻</button>
         <button class="ghost" data-fs="next" title="次のトラック">⏭</button>
+        <button class="ghost" data-fs="dev" id="fsDev" title="機器だけ一時停止/再開">機器⏸</button>
         <span id="fsInfo"></span>
         <button class="ghost" data-fs="exit" title="全画面を終了 (Esc)">✕</button>
       </div>
@@ -273,6 +276,7 @@
         <button id="fwd10" class="ghost" title="10秒進む">10秒 ↻</button>
         <button id="nextBtn" class="ghost">次 ⏭</button>
         <button id="stopBtn" class="ghost">■ 停止</button>
+        <button id="devPauseBtn" class="ghost" title="映像・音声はそのままで機器だけ止める/再開 (D)">⏸ 機器一時停止</button>
         <button id="fsBtn" class="ghost" title="全画面表示 (F)">⛶ 全画面</button>
         <label class="opt"><input type="checkbox" id="optLoop"> リスト繰り返し</label>
       </div>
@@ -320,7 +324,7 @@
     </div>
 
     <div id="footer">
-      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り(<kbd>Shift</kbd>で10秒) ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック ・ <kbd>F</kbd> 全画面(<kbd>Esc</kbd>で解除)<br>
+      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り(<kbd>Shift</kbd>で10秒) ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック ・ <kbd>D</kbd> 機器一時停止/再開 ・ <kbd>F</kbd> 全画面(<kbd>Esc</kbd>で解除)<br>
       ファイルは端末内でのみ処理され、外部には送信されません。CSV形式: <code>時間(0.1秒単位),方向(0/1),強さ(0〜100)</code>
     </div>
   </div>
@@ -473,10 +477,25 @@ function sendCmd(dir, pow, raw) {
   if (!raw) {
     if (settings.rev) d = 1 - d;
     if (p > 0) p = Math.max(0, Math.min(100, p + settings.adj));
+    if (devPaused) { showCmd(0, 0); return; } // 機器一時停止中: 映像は進めるが機器へは送らない
   }
   showCmd(d, p);
   writeBytes(buildBytes(devType(), d, p));
 }
+/* 機器だけ一時停止/再開(映像・音声はそのまま) */
+let devPaused = false;
+function setDevPaused(on) {
+  devPaused = on;
+  if (on) { showCmd(0, 0); writeBytes(buildBytes(devType(), 0, 0)); }
+  else if (lastCmd && !v.paused) sendCmd(lastCmd.d, lastCmd.p); // 現在位置で有効なコマンドから再開
+  else showCmd(0, 0);
+  $("devPauseBtn").textContent = on ? "▶ 機器再開" : "⏸ 機器一時停止";
+  $("devPauseBtn").classList.toggle("devpaused", on);
+  $("fsDev").textContent = on ? "機器▶" : "機器⏸";
+  $("fsDev").classList.toggle("devpaused", on);
+  setStatus(on ? "機器を一時停止中(映像・音声は再生中)" : "機器を再開しました");
+}
+$("devPauseBtn").onclick = () => setDevPaused(!devPaused);
 function sendStop() { lastCmd = null; showCmd(0, 0); writeBytes(buildBytes(devType(), 0, 0)); }
 function resend() { if (lastCmd && !v.paused) sendCmd(lastCmd.d, lastCmd.p); }
 
@@ -494,7 +513,7 @@ function showCmd(d, p) {
     }
   }
   $("powFill").style.width = p + "%"; $("fsPowFill").style.width = p + "%";
-  const label = on ? (d ? "逆転" : "正転") + " " + p : "停止";
+  const label = devPaused ? "機器一時停止" : on ? (d ? "逆転" : "正転") + " " + p : "停止";
   $("cmdText").textContent = fmtTime(v.currentTime) + " | " + label;
   $("fsMonText").textContent = label;
   updateFsInfo();
@@ -807,7 +826,7 @@ function tick() {
   let c = null;
   while (nextIdx < t.cmds.length && t.cmds[nextIdx].t <= now) { c = t.cmds[nextIdx]; nextIdx++; }
   if (c) { lastCmd = c; sendCmd(c.d, c.p); }
-  else { $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (lastCmd && lastCmd.p > 0 ? (((settings.rev ? 1 - lastCmd.d : lastCmd.d)) ? "逆転" : "正転") + " " + Math.max(0, Math.min(100, lastCmd.p + settings.adj)) : "停止"); updateFsInfo(); }
+  else { $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (devPaused ? "機器一時停止" : lastCmd && lastCmd.p > 0 ? (((settings.rev ? 1 - lastCmd.d : lastCmd.d)) ? "逆転" : "正転") + " " + Math.max(0, Math.min(100, lastCmd.p + settings.adj)) : "停止"); updateFsInfo(); }
   lastT = now;
 }
 function startTick() { if (!tickTimer) tickTimer = setInterval(tick, 50); }
@@ -836,6 +855,7 @@ function exitFs() {
   if (fsEl) { try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} }
   stage.classList.remove("fs", "show-ui");
   $("fsBtn").textContent = "⛶ 全画面";
+  syncFsControls();
 }
 function toggleFs() { isFs() ? exitFs() : enterFs(); }
 function onFsChange() {
@@ -843,12 +863,14 @@ function onFsChange() {
   stage.classList.toggle("fs", on);
   if (!on) stage.classList.remove("show-ui");
   $("fsBtn").textContent = on ? "⛶ 全画面解除" : "⛶ 全画面";
+  syncFsControls();
 }
 document.addEventListener("fullscreenchange", onFsChange);
 document.addEventListener("webkitfullscreenchange", onFsChange);
 /* 全画面中のUI(操作バー+動作モニター): 画面をタップ/クリックするたびに 表示 ⇄ 非表示 */
-function showFsUi() { if (isFs()) stage.classList.add("show-ui"); }
-function toggleFsUi() { if (isFs()) stage.classList.toggle("show-ui"); }
+function syncFsControls() { v.controls = !isFs() || stage.classList.contains("show-ui"); } // 全画面中は標準の再生バーもUIと一緒に表示/非表示
+function showFsUi() { if (isFs()) stage.classList.add("show-ui"); syncFsControls(); }
+function toggleFsUi() { if (isFs()) stage.classList.toggle("show-ui"); syncFsControls(); }
 $("fsTap").addEventListener("click", e => { e.stopPropagation(); toggleFsUi(); });
 $("fsBtn").onclick = toggleFs;
 $("fsBar").addEventListener("click", e => {
@@ -859,6 +881,7 @@ $("fsBar").addEventListener("click", e => {
     case "back": seekBy(-10); break;
     case "play": $("playBtn").click(); break;
     case "stop": stopAll(); break;
+    case "dev": setDevPaused(!devPaused); break;
     case "fwd": seekBy(10); break;
     case "next": nextTrack(false); break;
     case "exit": exitFs(); break;
@@ -893,6 +916,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "n" || e.key === "N") nextTrack(false);
   else if (e.key === "p" || e.key === "P") $("prevBtn").click();
   else if (e.key === "f" || e.key === "F") toggleFs();
+  else if (e.key === "d" || e.key === "D") setDevPaused(!devPaused);
   else if (e.key === "Escape" && isFs()) exitFs();
 });
 window.addEventListener("pagehide", () => { sendStop(); });
