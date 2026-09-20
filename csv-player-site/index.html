@@ -123,21 +123,37 @@
     display: block; color: var(--muted); font-size: 12px; padding: 16px 10px; text-align: center; line-height: 1.6;
   }
   .track {
-    display: grid; grid-template-columns: 26px 1fr auto; gap: 4px 8px; align-items: center;
-    padding: 7px 8px; border-radius: 6px; border: 1px solid transparent; margin-bottom: 4px;
-    background: var(--panel2); font-size: 13px; cursor: pointer;
+    display: grid; grid-template-columns: 40px 1fr auto auto; grid-template-rows: auto auto; gap: 2px 8px; align-items: center;
+    padding: 6px 6px 6px 0; border-radius: 6px; border: 1px solid transparent; margin-bottom: 4px;
+    background: var(--panel2); font-size: 13px; cursor: pointer; position: relative;
   }
   .track:hover { border-color: var(--border); }
   .track.playing { border-color: var(--accent); background: #2f3c58; }
   .track.dragover { border-color: var(--warn); }
-  .track .num { color: var(--muted); font-size: 12px; text-align: center; }
-  .track .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .track .csv { grid-column: 2; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track.dragging { opacity: .5; border-color: var(--accent); }
+  .track .handle {
+    grid-row: 1 / span 2; grid-column: 1; align-self: stretch; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1px;
+    color: var(--muted); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+    border-right: 1px solid var(--border);
+  }
+  .track .handle .grip { font-size: 18px; line-height: 1; }
+  .track .handle .num { font-size: 11px; }
+  .track .name { grid-column: 2; grid-row: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track .csv { grid-column: 2; grid-row: 2; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track .csv.ok { color: var(--ok); }
   .track .csv.ng { color: var(--warn); }
   .track .csv.warn { color: var(--err); }
-  .track .btns { grid-row: 1 / span 2; display: flex; gap: 3px; }
-  .track .btns button { padding: 4px 7px; font-size: 12px; }
+  .track .btns { grid-row: 1 / span 2; grid-column: 4; display: flex; flex-direction: column; gap: 3px; }
+  .track .btns.ud { grid-column: 3; }
+  .track .btns button { padding: 4px 8px; font-size: 12px; min-width: 40px; }
+  .track .btns.ud button { padding: 2px 8px; }
+  @media (pointer: coarse) {
+    .track { grid-template-columns: 48px 1fr auto auto; }
+    .track .btns button { min-width: 46px; min-height: 36px; font-size: 14px; }
+    .track .btns.ud button { min-height: 34px; }
+    .track .handle .grip { font-size: 22px; }
+  }
   .drop-active { outline: 3px dashed var(--accent); outline-offset: -3px; }
 
   #testPanel details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
@@ -150,7 +166,8 @@
     main { flex-direction: column; }
     #left { flex: none; overflow: visible; }
     #stage { max-height: 40vh; }
-    #right { width: auto; max-width: none; min-width: 0; border-left: none; border-top: 1px solid var(--border); flex: 1; min-height: 200px; }
+    #right { width: auto; max-width: none; min-width: 0; border-left: none; border-top: 1px solid var(--border); flex: none; }
+    #list { overflow: visible; padding-bottom: 40px; }
     body { overflow-y: auto; }
     main { overflow: visible; }
     #status { display: none; }
@@ -245,8 +262,9 @@
   <div id="right">
     <div id="rightHead">
       <label><input type="file" id="fileInput" multiple hidden accept="video/*,audio/*,.mp4,.m4v,.webm,.mov,.mkv,.avi,.mp3,.wav,.ogg,.m4a,.flac,.aac,.csv,.txt"><button class="ghost" onclick="document.getElementById('fileInput').click()">＋ ファイル追加</button></label>
+      <button id="sortBtn" class="ghost" title="ファイル名の順(数字は数値順)に並べ替え">名前順</button>
       <button id="clearBtn" class="ghost">全削除</button>
-      <span class="hint">動画・音声とCSVをまとめて選択可(PCはドラッグ&ドロップ可)。各行の「CSV」でも個別にセットできます。</span>
+      <span class="hint">動画・音声とCSVをまとめて選択可(名前順に追加・同名CSVは自動紐づけ)。並べ替えは左の「⋮⋮」を長押しドラッグ、または▲▼。</span>
     </div>
     <div id="list"></div>
     <input type="file" id="csvInput" hidden accept=".csv,.txt,text/csv,text/plain">
@@ -442,12 +460,15 @@ function readText(file) {
   });
 }
 function baseName(n) { return n.replace(/\.[^.]+$/, ""); }
+const collator = new Intl.Collator("ja", { numeric: true, sensitivity: "base" });
+function nameCmp(a, b) { return collator.compare(a, b); }
 
 /* ========== 再生リスト ========== */
 async function addFiles(fileList) {
   const files = Array.from(fileList || []);
   const medias = files.filter(f => MEDIA_RE.test(f.name) || /^(video|audio)\//.test(f.type));
   const csvs = files.filter(f => CSV_RE.test(f.name) && !medias.includes(f));
+  medias.sort((a, b) => nameCmp(a.name, b.name)); // ファイル選択の順序に関わらず名前順(01,02,…,10 の数値順)で追加
   let added = 0, paired = 0;
   for (const f of medias) {
     if (tracks.some(t => t.name === f.name && t.file.size === f.size)) continue;
@@ -484,20 +505,24 @@ function renderList() {
   tracks.forEach((t, i) => {
     const el = document.createElement("div");
     el.className = "track" + (i === cur ? " playing" : "");
-    el.draggable = true; el.dataset.i = i;
+    el.dataset.i = i;
     const csvCls = t.warn ? "warn" : (t.cmds ? "ok" : "ng");
     const csvTxt = t.warn ? "⚠ " + t.warn : (t.cmds ? "✔ " + t.csvName + "(" + t.cmds.length + "行・初動 " + firstMove(t.cmds) + ")" : "✖ CSV未設定(再生のみ)");
     el.innerHTML =
-      `<div class="num">${i + 1}</div>
+      `<div class="handle" title="ドラッグで並べ替え"><span class="grip">⋮⋮</span><span class="num">${i + 1}</span></div>
        <div class="name" title="${esc(t.name)}">${i === cur ? "▶ " : ""}${esc(t.name)}</div>
+       <div class="btns ud">
+         <button class="ghost" data-act="up" title="上へ" ${i === 0 ? "disabled" : ""}>▲</button>
+         <button class="ghost" data-act="down" title="下へ" ${i === tracks.length - 1 ? "disabled" : ""}>▼</button>
+       </div>
        <div class="btns">
          <button class="ghost" data-act="csv" title="CSVをセット">CSV</button>
-         <button class="ghost" data-act="up" title="上へ">▲</button>
-         <button class="ghost" data-act="down" title="下へ">▼</button>
          <button class="ghost" data-act="del" title="削除">✕</button>
        </div>
        <div class="csv ${csvCls}">${esc(csvTxt)}</div>`;
+    el.querySelector(".handle").addEventListener("pointerdown", e => startTouchDrag(e, el));
     el.onclick = e => {
+      if (e.target.closest(".handle") || dragMoved) return;
       const act = e.target.dataset && e.target.dataset.act;
       if (!act) { playTrack(i); return; }
       e.stopPropagation();
@@ -506,16 +531,68 @@ function renderList() {
       else if (act === "down" && i < tracks.length - 1) { move(i, i + 1); }
       else if (act === "del") { removeTrack(i); }
     };
-    el.ondragstart = e => { e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; };
-    el.ondragover = e => { if (e.dataTransfer.types.includes("text/plain")) { e.preventDefault(); el.classList.add("dragover"); } };
-    el.ondragleave = () => el.classList.remove("dragover");
-    el.ondrop = e => {
-      const from = +e.dataTransfer.getData("text/plain");
-      if (Number.isInteger(from) && from !== i) { e.preventDefault(); e.stopPropagation(); move(from, i); }
-    };
     list.appendChild(el);
   });
 }
+/* タッチ/マウス共通のドラッグ並べ替え(左のハンドルを掴んで上下に動かす) */
+let dragMoved = false;
+function startTouchDrag(e, el) {
+  if (e.button !== undefined && e.button !== 0) return;
+  e.preventDefault();
+  const list = $("list"), handle = e.currentTarget, id = e.pointerId;
+  const fromId = tracks[+el.dataset.i].id;
+  let moved = false, autoScroll = 0, raf = 0;
+  handle.setPointerCapture(id);
+  const onMove = ev => {
+    if (ev.pointerId !== id) return;
+    moved = true; el.classList.add("dragging");
+    const y = ev.clientY;
+    // 端に近づいたらリストを自動スクロール
+    const listScrolls = list.scrollHeight > list.clientHeight + 1;
+    const r = listScrolls ? list.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    autoScroll = y < r.top + 50 ? -6 : y > r.bottom - 50 ? 6 : 0;
+    if (autoScroll && !raf) {
+      const step = () => { if (!autoScroll) { raf = 0; return; } if (listScrolls) list.scrollTop += autoScroll; else window.scrollBy(0, autoScroll); raf = requestAnimationFrame(step); };
+      raf = requestAnimationFrame(step);
+    }
+    for (const other of list.children) {
+      if (other === el) continue;
+      const b = other.getBoundingClientRect();
+      if (y < b.top || y > b.bottom) continue;
+      const before = y < b.top + b.height / 2;
+      const isAfter = !!(el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (before && isAfter) list.insertBefore(el, other);
+      else if (!before && !isAfter) list.insertBefore(el, other.nextSibling);
+      else if (before && !isAfter) list.insertBefore(el, other);
+      else list.insertBefore(el, other.nextSibling);
+      break;
+    }
+  };
+  const onUp = ev => {
+    if (ev.pointerId !== id) return;
+    handle.removeEventListener("pointermove", onMove);
+    handle.removeEventListener("pointerup", onUp);
+    handle.removeEventListener("pointercancel", onUp);
+    autoScroll = 0; el.classList.remove("dragging");
+    if (moved) {
+      // DOMの並び順を配列に反映
+      const to = Array.from(list.children).indexOf(el);
+      const from = tracks.findIndex(t => t.id === fromId);
+      if (from !== -1 && to !== -1 && from !== to) move(from, to); else renderList();
+      dragMoved = true; setTimeout(() => dragMoved = false, 0);
+    }
+  };
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onUp);
+  handle.addEventListener("pointercancel", onUp);
+}
+$("sortBtn").onclick = () => {
+  if (!tracks.length) return;
+  const playing = tracks[cur];
+  tracks.sort((a, b) => nameCmp(a.name, b.name));
+  cur = playing ? tracks.indexOf(playing) : -1;
+  renderList();
+};
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function firstMove(cmds) { const c = cmds.find(x => x.p > 0); return c ? (c.t / 10).toFixed(1) + "秒" : "なし"; }
 function move(from, to) {
