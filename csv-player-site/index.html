@@ -70,7 +70,7 @@
     aspect-ratio: 16/9; max-height: 60vh; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
   }
-  #video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #video { width: 100%; height: 100%; object-fit: contain; background: transparent; position: relative; z-index: 1; }
   #audioArt {
     position: absolute; inset: 0 0 64px 0; display: none; align-items: center; justify-content: center;
     flex-direction: column; gap: 8px; color: var(--muted); pointer-events: none;
@@ -78,6 +78,12 @@
   }
   #audioArt .note { font-size: 64px; }
   #audioArt.show { display: flex; }
+  #stageImg {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    background: #000; display: none; pointer-events: none;
+  }
+  #stageImg.show { display: block; }
+  #stageImg.cover { object-fit: cover; }
   #stageMsg {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 20px; pointer-events: none;
@@ -195,6 +201,7 @@
 <main>
   <div id="left">
     <div id="stage">
+      <img id="stageImg" alt="">
       <video id="video" playsinline preload="metadata"></video>
       <div id="audioArt"><div class="note">🎧</div><div id="audioName"></div></div>
       <div id="stageMsg">再生リストからトラックを選ぶか、「再生」を押してください</div>
@@ -263,13 +270,15 @@
 
   <div id="right">
     <div id="rightHead">
-      <label><input type="file" id="fileInput" multiple hidden accept="video/*,audio/*,.mp4,.m4v,.webm,.mov,.mkv,.avi,.mp3,.wav,.ogg,.m4a,.flac,.aac,.csv,.txt"><button class="ghost" onclick="document.getElementById('fileInput').click()">＋ ファイル追加</button></label>
+      <label><input type="file" id="fileInput" multiple hidden accept="video/*,audio/*,image/*,.mp4,.m4v,.webm,.mov,.mkv,.avi,.mp3,.wav,.ogg,.m4a,.flac,.aac,.csv,.txt,.jpg,.jpeg,.png,.gif,.webp,.avif,.bmp"><button class="ghost" onclick="document.getElementById('fileInput').click()">＋ ファイル追加</button></label>
       <button id="sortBtn" class="ghost" title="ファイル名の順(数字は数値順)に並べ替え">名前順</button>
       <button id="clearBtn" class="ghost">全削除</button>
-      <span class="hint">動画・音声とCSVをまとめて選択可(名前順に追加・同名CSVは自動紐づけ)。並べ替えは左の「⋮⋮」を長押しドラッグ、または▲▼。</span>
+      <span class="hint">動画・音声・CSV・画像をまとめて選択可(名前順に追加・同名のCSVと画像は自動紐づけ)。並べ替えは左の「⋮⋮」を長押しドラッグ、または▲▼。</span>
+      <span class="hint" id="defImgHint" style="display:none">共通画像: <b id="defImgName"></b>(画像未設定の音声で表示) <button class="ghost icon" id="defImgClear" style="padding:2px 7px;font-size:11px">解除</button></span>
     </div>
     <div id="list"></div>
     <input type="file" id="csvInput" hidden accept=".csv,.txt,text/csv,text/plain">
+    <input type="file" id="imgInput" hidden accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.avif,.bmp">
   </div>
 </main>
 
@@ -281,14 +290,16 @@ const DEV = { CYCLONE: 1, UFO: 2, PISTON: 3, UFOTW: 5 };
 const MEDIA_RE = /\.(mp4|m4v|webm|mov|mkv|avi|mp3|wav|ogg|oga|m4a|flac|aac)$/i;
 const CSV_RE = /\.(csv|txt)$/i;
 const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|flac|aac)$/i;
+const IMG_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
 
 /* ========== 状態 ========== */
-let tracks = [];          // {id, name, file, url, csvName, cmds:[{t,d,p}]|null, warn}
+let tracks = [];          // {id, name, file, url, csvName, cmds:[{t,d,p}]|null, warn, imgName, imgUrl}
 let cur = -1;             // 再生中トラック index
+let defaultImg = null;    // {name, url} 画像未設定の音声トラックで表示する共通画像
 let ble = { device: null, chr: null, type: 0, name: "" };
 let tickTimer = 0, nextIdx = 0, lastT = -1, lastCmd = null;
 let wakeLock = null;
-let pendingCsvTarget = null;
+let pendingCsvTarget = null, pendingImgTarget = null;
 let uid = 0;
 
 const $ = id => document.getElementById(id);
@@ -415,7 +426,7 @@ function resend() { if (lastCmd && !v.paused) sendCmd(lastCmd.d, lastCmd.p); }
 /* ========== モニター表示 ========== */
 function showCmd(d, p) {
   const on = p > 0, dur = (1.6 - p / 100 * 1.3).toFixed(2) + "s";
-  const type = devType();
+  const type = devType() || DEV.UFOTW; // 未接続時はUFO TWとして表示
   const L = $("rotorL"), R = $("rotorR");
   L.style.display = type === DEV.UFOTW ? "" : "none";
   for (const [el, dd] of [[L, (settings.same ? d : 1 - d)], [R, d]]) {
@@ -470,19 +481,22 @@ async function addFiles(fileList) {
   const files = Array.from(fileList || []);
   const medias = files.filter(f => MEDIA_RE.test(f.name) || /^(video|audio)\//.test(f.type));
   const csvs = files.filter(f => CSV_RE.test(f.name) && !medias.includes(f));
+  const imgs = files.filter(f => (IMG_RE.test(f.name) || /^image\//.test(f.type)) && !medias.includes(f));
   medias.sort((a, b) => nameCmp(a.name, b.name)); // ファイル選択の順序に関わらず名前順(01,02,…,10 の数値順)で追加
-  let added = 0, paired = 0;
+  let added = 0, paired = 0, pairedImg = 0;
   for (const f of medias) {
     if (tracks.some(t => t.name === f.name && t.file.size === f.size)) continue;
-    tracks.push({ id: ++uid, name: f.name, file: f, url: URL.createObjectURL(f), csvName: null, cmds: null, warn: "" });
+    tracks.push({ id: ++uid, name: f.name, file: f, url: URL.createObjectURL(f), csvName: null, cmds: null, warn: "", imgName: null, imgUrl: null });
     added++;
   }
-  // 同名CSVの自動紐づけ(a.mp4 ↔ a.csv / a.mp4.csv)
-  for (const c of csvs) {
-    const b1 = baseName(c.name).toLowerCase(), b2 = baseName(baseName(c.name)).toLowerCase();
-    const tr = tracks.find(t => baseName(t.name).toLowerCase() === b1 || t.name.toLowerCase() === b1 || baseName(t.name).toLowerCase() === b2);
-    if (tr) { await setCSV(tr, c); paired++; }
-  }
+  // 同名CSV・画像の自動紐づけ(a.mp4 ↔ a.csv / a.mp4.csv / a.jpg / a.mp4.jpg)
+  const findByName = f => {
+    const b1 = baseName(f.name).toLowerCase(), b2 = baseName(baseName(f.name)).toLowerCase();
+    return tracks.find(t => baseName(t.name).toLowerCase() === b1 || t.name.toLowerCase() === b1 || baseName(t.name).toLowerCase() === b2);
+  };
+  for (const c of csvs) { const tr = findByName(c); if (tr) { await setCSV(tr, c); paired++; } }
+  const unpairedImgs = [];
+  for (const im of imgs) { const tr = findByName(im); if (tr) { setImage(tr, im); pairedImg++; } else unpairedImgs.push(im); }
   const unpaired = csvs.length - paired;
   if (medias.length === 0 && csvs.length === 1 && tracks.length > 0 && cur >= 0) {
     await setCSV(tracks[cur], csvs[0]); paired++;
@@ -490,8 +504,42 @@ async function addFiles(fileList) {
   } else if (medias.length === 0 && csvs.length > 0 && unpaired > 0) {
     alert("同名の動画・音声が見つからないCSVがあります。先に動画・音声を追加するか、各行の「CSV」ボタンからセットしてください。");
   }
+  // 紐づかなかった画像は「共通画像」(画像未設定の音声トラックで表示)。複数あれば名前順の先頭
+  if (unpairedImgs.length) {
+    unpairedImgs.sort((a, b) => nameCmp(a.name, b.name));
+    setDefaultImage(unpairedImgs[0]);
+    setStatus("共通画像に " + unpairedImgs[0].name + " をセットしました" + (unpairedImgs.length > 1 ? "(他 " + (unpairedImgs.length - 1) + " 件は無視)" : ""));
+  }
   renderList();
-  if (added) setStatus(added + "件追加" + (paired ? "(CSV " + paired + "件を紐づけ)" : ""));
+  if (added) setStatus(added + "件追加" + (paired || pairedImg ? "(" + [paired && "CSV " + paired + "件", pairedImg && "画像 " + pairedImg + "件"].filter(Boolean).join("・") + "を紐づけ)" : ""));
+}
+function setImage(tr, file) {
+  if (tr.imgUrl) URL.revokeObjectURL(tr.imgUrl);
+  tr.imgName = file.name; tr.imgUrl = URL.createObjectURL(file);
+  if (tracks[cur] === tr) updateStageArt();
+}
+function clearImage(tr) {
+  if (tr.imgUrl) URL.revokeObjectURL(tr.imgUrl);
+  tr.imgName = null; tr.imgUrl = null;
+  if (tracks[cur] === tr) updateStageArt();
+}
+function setDefaultImage(file) {
+  if (defaultImg) URL.revokeObjectURL(defaultImg.url);
+  defaultImg = file ? { name: file.name, url: URL.createObjectURL(file) } : null;
+  $("defImgHint").style.display = defaultImg ? "" : "none";
+  $("defImgName").textContent = defaultImg ? defaultImg.name : "";
+  updateStageArt();
+}
+$("defImgClear").onclick = () => setDefaultImage(null);
+/* 再生画面の表示切り替え: 動画 → そのまま / 音声 → トラック画像 → 共通画像 → 🎧 */
+function updateStageArt() {
+  const t = tracks[cur];
+  const img = $("stageImg"), art = $("audioArt");
+  if (!t) { img.classList.remove("show"); img.removeAttribute("src"); art.classList.remove("show"); return; }
+  const isAudio = AUDIO_RE.test(t.name) || /^audio\//.test(t.file.type);
+  const url = isAudio ? (t.imgUrl || (defaultImg && defaultImg.url)) : null;
+  if (url) { if (img.getAttribute("src") !== url) img.src = url; img.classList.add("show"); art.classList.remove("show"); }
+  else { img.classList.remove("show"); img.removeAttribute("src"); art.classList.toggle("show", isAudio); $("audioName").textContent = isAudio ? t.name : ""; }
 }
 async function setCSV(tr, file) {
   try {
@@ -519,9 +567,11 @@ function renderList() {
        </div>
        <div class="btns">
          <button class="ghost" data-act="csv" title="CSVをセット">CSV</button>
+         <button class="ghost" data-act="img" title="${t.imgName ? "画像を変更(長押し/右クリックで解除)" : "再生画面に表示する画像をセット"}">画像${t.imgName ? "✔" : ""}</button>
          <button class="ghost" data-act="del" title="削除">✕</button>
        </div>
-       <div class="csv ${csvCls}">${esc(csvTxt)}</div>`;
+       <div class="csv ${csvCls}">${esc(csvTxt)}${t.imgName ? ' <span style="color:var(--muted)">/ 🖼 ' + esc(t.imgName) + "</span>" : ""}</div>`;
+    el.querySelector('[data-act="img"]').addEventListener("contextmenu", e => { e.preventDefault(); if (t.imgName && confirm("画像「" + t.imgName + "」を解除しますか?")) { clearImage(t); renderList(); } });
     el.querySelector(".handle").addEventListener("pointerdown", e => startTouchDrag(e, el));
     el.onclick = e => {
       if (e.target.closest(".handle") || dragMoved) return;
@@ -529,6 +579,7 @@ function renderList() {
       if (!act) { playTrack(i); return; }
       e.stopPropagation();
       if (act === "csv") { pendingCsvTarget = t; $("csvInput").value = ""; $("csvInput").click(); }
+      else if (act === "img") { pendingImgTarget = t; $("imgInput").value = ""; $("imgInput").click(); }
       else if (act === "up" && i > 0) { move(i, i - 1); }
       else if (act === "down" && i < tracks.length - 1) { move(i, i + 1); }
       else if (act === "del") { removeTrack(i); }
@@ -604,18 +655,23 @@ function move(from, to) {
 }
 function removeTrack(i) {
   const t = tracks[i];
-  if (i === cur) { stopAll(); cur = -1; }
-  URL.revokeObjectURL(t.url);
+  if (i === cur) { stopAll(); cur = -1; updateStageArt(); }
+  URL.revokeObjectURL(t.url); if (t.imgUrl) URL.revokeObjectURL(t.imgUrl);
   tracks.splice(i, 1);
   if (i < cur) cur--;
   renderList();
 }
-$("clearBtn").onclick = () => { if (tracks.length && confirm("再生リストを全て削除しますか?")) { stopAll(); tracks.forEach(t => URL.revokeObjectURL(t.url)); tracks = []; cur = -1; renderList(); updateNow(); } };
+$("clearBtn").onclick = () => { if (tracks.length && confirm("再生リストを全て削除しますか?")) { stopAll(); tracks.forEach(t => { URL.revokeObjectURL(t.url); if (t.imgUrl) URL.revokeObjectURL(t.imgUrl); }); tracks = []; cur = -1; renderList(); updateNow(); updateStageArt(); } };
 $("fileInput").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
 $("csvInput").onchange = async e => {
   const f = e.target.files[0];
   if (f && pendingCsvTarget) { await setCSV(pendingCsvTarget, f); renderList(); }
   pendingCsvTarget = null; e.target.value = "";
+};
+$("imgInput").onchange = e => {
+  const f = e.target.files[0];
+  if (f && pendingImgTarget) { setImage(pendingImgTarget, f); renderList(); }
+  pendingImgTarget = null; e.target.value = "";
 };
 // ドラッグ&ドロップ
 document.addEventListener("dragover", e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); document.body.classList.add("drop-active"); } });
@@ -630,8 +686,7 @@ function playTrack(i, autoplay = true) {
   const t = tracks[i];
   v.src = t.url; v.controls = true;
   $("stageMsg").classList.add("hide");
-  const isAudio = AUDIO_RE.test(t.name) || /^audio\//.test(t.file.type);
-  $("audioArt").classList.toggle("show", isAudio); $("audioName").textContent = isAudio ? t.name : "";
+  updateStageArt();
   nextIdx = 0; lastT = -1; lastCmd = null;
   updateNow(); renderList();
   if (autoplay) v.play().catch(() => { setStatus("▶ を押して再生してください"); });
