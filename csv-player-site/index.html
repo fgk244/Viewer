@@ -98,6 +98,20 @@
     opacity: 0; transition: opacity .25s; max-width: calc(100vw - 20px); flex-wrap: wrap; justify-content: center;
   }
   #stage.fs #fsBar { display: flex; }
+  /* 全画面中の動作モニター(右上・常時表示) */
+  #fsMon {
+    position: absolute; top: 12px; right: 12px; z-index: 5; display: none; align-items: center; gap: 10px;
+    padding: 8px 12px 14px; border-radius: 12px; background: rgba(30,31,36,.7); border: 1px solid var(--border);
+    opacity: .9; pointer-events: none;
+  }
+  #stage.fs #fsMon { display: flex; }
+  #fsMon .rotor { width: 44px; height: 44px; font-size: 20px; border-width: 2px; }
+  #fsMon .rotor .lbl { bottom: -14px; }
+  #fsMon .fsmon-right { display: flex; flex-direction: column; gap: 5px; min-width: 90px; }
+  #fsMonText { font-family: Consolas, Menlo, monospace; font-size: 13px; color: var(--text); white-space: nowrap; }
+  #fsMon .fsbar { height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+  #fsPowFill { height: 100%; width: 0; background: linear-gradient(90deg, #6ba4ff, #a56bff); transition: width .1s; }
+  @media (max-width: 480px) { #fsMon { top: 8px; right: 8px; padding: 6px 8px 12px; gap: 6px; } #fsMon .rotor { width: 36px; height: 36px; font-size: 16px; } #fsMon .fsmon-right { min-width: 70px; } #fsMonText { font-size: 12px; } }
   #stage.fs.show-ui #fsBar { opacity: 1; }
   #fsBar button { padding: 8px 12px; font-size: 15px; }
   #fsInfo { font-family: Consolas, Menlo, monospace; font-size: 13px; color: var(--text); padding: 0 6px; white-space: nowrap; }
@@ -223,10 +237,19 @@
       <video id="video" playsinline preload="metadata"></video>
       <div id="audioArt"><div class="note">🎧</div><div id="audioName"></div></div>
       <div id="stageMsg">再生リストからトラックを選ぶか、「再生」を押してください</div>
+      <div id="fsMon">
+        <div class="rotor" id="fsRotorL"><span class="arrow">↻</span><span class="lbl">L</span></div>
+        <div class="rotor" id="fsRotorR"><span class="arrow">↻</span><span class="lbl">R</span></div>
+        <div class="fsmon-right">
+          <div id="fsMonText">停止</div>
+          <div class="fsbar"><div id="fsPowFill"></div></div>
+        </div>
+      </div>
       <div id="fsBar">
         <button class="ghost" data-fs="prev" title="前のトラック">⏮</button>
         <button class="ghost" data-fs="back" title="10秒戻る">↺10</button>
         <button data-fs="play" id="fsPlay" title="再生/一時停止">▶</button>
+        <button class="ghost" data-fs="stop" title="停止(先頭に戻る)">■</button>
         <button class="ghost" data-fs="fwd" title="10秒進む">10↻</button>
         <button class="ghost" data-fs="next" title="次のトラック">⏭</button>
         <span id="fsInfo"></span>
@@ -455,14 +478,19 @@ function resend() { if (lastCmd && !v.paused) sendCmd(lastCmd.d, lastCmd.p); }
 function showCmd(d, p) {
   const on = p > 0, dur = (1.6 - p / 100 * 1.3).toFixed(2) + "s";
   const type = devType() || DEV.UFOTW; // 未接続時はUFO TWとして表示
-  const L = $("rotorL"), R = $("rotorR");
-  L.style.display = type === DEV.UFOTW ? "" : "none";
-  for (const [el, dd] of [[L, (settings.same ? d : 1 - d)], [R, d]]) {
-    el.className = "rotor" + (on ? " on" : "") + (dd ? " ccw" : "");
-    el.style.setProperty("--dur", dur);
+  const dl = settings.same ? d : 1 - d;
+  // 通常表示と全画面表示の両方のモニターを同時に更新
+  for (const [L, R] of [[$("rotorL"), $("rotorR")], [$("fsRotorL"), $("fsRotorR")]]) {
+    L.style.display = type === DEV.UFOTW ? "" : "none";
+    for (const [el, dd] of [[L, dl], [R, d]]) {
+      el.className = "rotor" + (on ? " on" : "") + (dd ? " ccw" : "");
+      el.style.setProperty("--dur", dur);
+    }
   }
-  $("powFill").style.width = p + "%";
-  $("cmdText").textContent = fmtTime(v.currentTime) + " | " + (on ? (d ? "逆転" : "正転") + " " + p : "停止");
+  $("powFill").style.width = p + "%"; $("fsPowFill").style.width = p + "%";
+  const label = on ? (d ? "逆転" : "正転") + " " + p : "停止";
+  $("cmdText").textContent = fmtTime(v.currentTime) + " | " + label;
+  $("fsMonText").textContent = label;
   updateFsInfo();
 }
 function fmtTime(s) {
@@ -830,6 +858,7 @@ $("fsBar").addEventListener("click", e => {
     case "prev": $("prevBtn").click(); break;
     case "back": seekBy(-10); break;
     case "play": $("playBtn").click(); break;
+    case "stop": stopAll(); break;
     case "fwd": seekBy(10); break;
     case "next": nextTrack(false); break;
     case "exit": exitFs(); break;
