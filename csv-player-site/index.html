@@ -872,10 +872,24 @@ function onFsChange() {
 document.addEventListener("fullscreenchange", onFsChange);
 document.addEventListener("webkitfullscreenchange", onFsChange);
 /* 全画面中のUI(操作バー+動作モニター): 画面をタップ/クリックするたびに 表示 ⇄ 非表示 */
-/* ブラウザ標準の再生バー(iOSの全画面切り替え・再生/停止・シーク等)は常に有効のまま。表示切り替えは左上の☰ボタンのみで行う */
+/* ブラウザ標準の再生バー(iOSの全画面切り替え・再生/停止・シーク等)は常に有効のまま。
+   表示切り替えは左上の☰ボタン、または映像部分のタップ/クリック。
+   タップが標準コントロールの操作(再生/停止・シーク)だった場合は切り替えない */
 function showFsUi() { if (isFs()) stage.classList.add("show-ui"); }
 function toggleFsUi() { if (isFs()) stage.classList.toggle("show-ui"); }
 $("fsToggle").addEventListener("click", e => { e.stopPropagation(); toggleFsUi(); });
+let tapPaused = null, tapTime = 0;
+stage.addEventListener("pointerdown", () => { tapPaused = v.paused; tapTime = v.currentTime; });
+stage.addEventListener("click", e => {
+  if (!isFs() || e.target.closest("#fsBar, #fsToggle, #fsMon")) return;
+  const r = stage.getBoundingClientRect();
+  if (e.clientY > r.bottom - 80) return; // 下端は標準の再生バー領域(シーク・音量・全画面ボタン)
+  const paused0 = tapPaused, time0 = tapTime;
+  setTimeout(() => { // 少し待って、再生/停止やシークが起きていなければUIの切り替えとみなす
+    if (v.paused !== paused0 || Math.abs(v.currentTime - time0) > 1.5) return;
+    toggleFsUi();
+  }, 250);
+});
 $("fsBtn").onclick = toggleFs;
 $("fsBar").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
