@@ -205,7 +205,9 @@
       <div id="nowMeta">CSV: なし</div>
       <div class="row" style="margin-top:10px">
         <button id="prevBtn" class="ghost">⏮ 前</button>
+        <button id="back10" class="ghost" title="10秒戻る">↺ 10秒</button>
         <button id="playBtn">▶ 再生</button>
+        <button id="fwd10" class="ghost" title="10秒進む">10秒 ↻</button>
         <button id="nextBtn" class="ghost">次 ⏭</button>
         <button id="stopBtn" class="ghost">■ 停止</button>
         <label class="opt"><input type="checkbox" id="optLoop"> リスト繰り返し</label>
@@ -254,7 +256,7 @@
     </div>
 
     <div id="footer">
-      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック<br>
+      キー操作: <kbd>Space</kbd> 再生/一時停止 ・ <kbd>←</kbd><kbd>→</kbd> 5秒送り(<kbd>Shift</kbd>で10秒) ・ <kbd>N</kbd>/<kbd>P</kbd> 次/前のトラック<br>
       ファイルは端末内でのみ処理され、外部には送信されません。CSV形式: <code>時間(0.1秒単位),方向(0/1),強さ(0〜100)</code>
     </div>
   </div>
@@ -645,6 +647,13 @@ $("playBtn").onclick = () => {
   v.paused ? v.play() : v.pause();
 };
 $("stopBtn").onclick = () => { stopAll(); };
+function seekBy(sec) {
+  if (cur < 0 || !isFinite(v.duration)) return;
+  v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + sec));
+  setStatus((sec > 0 ? "+" : "") + sec + "秒 → " + fmtTime(v.currentTime));
+}
+$("back10").onclick = () => seekBy(-10);
+$("fwd10").onclick = () => seekBy(10);
 $("prevBtn").onclick = () => { if (cur > 0) playTrack(cur - 1); else if (cur === 0) { v.currentTime = 0; } };
 $("nextBtn").onclick = () => nextTrack(false);
 function nextTrack(auto) {
@@ -709,8 +718,8 @@ $("testStop").onclick = () => sendStop();
 document.addEventListener("keydown", e => {
   if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) && e.target.type !== "range") return;
   if (e.code === "Space") { e.preventDefault(); $("playBtn").click(); }
-  else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || 0, v.currentTime + 5); }
-  else if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 5); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); seekBy(e.shiftKey ? 10 : 5); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); seekBy(e.shiftKey ? -10 : -5); }
   else if (e.key === "n" || e.key === "N") nextTrack(false);
   else if (e.key === "p" || e.key === "P") $("prevBtn").click();
 });
